@@ -1074,29 +1074,6 @@ if __name__ == "__main__":
 
     # --- Cellule 4 : affichage ---
     print("Plots multiples", flush=True)
-
-
-
-
-
-    plotsProgress(init=True, total=100)
-    for _ in range(100):
-        plotsProgress()
-        time.sleep(0.1)
-
-    plotsProgress(init=True, total=100)
-    for _ in range(50):
-        plotsProgress()
-        time.sleep(0.1)
-    plotsProgress(full=True)
-
-    plotsProgress(init=True, total=100)
-    for _ in range(100):
-        plotsProgress()
-        time.sleep(0.1)
-
-    # exit(0)
-
     plotsProgress(init=True, total=50)
     fig, axes = plt.subplots(11, 1, figsize=(18, 36), sharex=True)
     plotsProgress()
