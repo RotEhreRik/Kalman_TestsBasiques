@@ -21,6 +21,7 @@ import time
 # Class_7_v2.5->Class_8_v1 : toutes vares et tous calculs en radians
 # Class_8_v1->Class_8_v2 : rotation alpha autour de y -> rotation alpha autour de u unitaire qcq
 # Class_8_v2->Class_8_v3 : ajout représentation graphique attitude
+# Class_8_v3->Class : Gestion Git+GitHub
 
 # =============================================================================
 # Fonctions utilitaires (indépendantes de tout contexte)
@@ -55,6 +56,7 @@ def progress_bar(current, total, prefix="", bar_length=40, start_time=None):
     if current >= total:
         print()
 
+
 def plotsProgress(init=False, total=None, full=False):
     if not hasattr(plotsProgress, "current"):
         plotsProgress.current = 0
@@ -67,6 +69,7 @@ def plotsProgress(init=False, total=None, full=False):
         plotsProgress.total = total
     progress_bar(plotsProgress.current, plotsProgress.total, prefix="Plots", start_time=plotsProgress.startTime)
     plotsProgress.current += 1
+
 
 def loadCSVRecord(filename: str) -> np.ndarray:
     (
@@ -196,13 +199,6 @@ def quaternionToEuler(q):
     return RollPitchYaw
 
 
-
-
-
-
-
-
-
 def setEqual3DAxes(ax, lim):
     ax.set_xlim(-lim, lim)
     ax.set_ylim(-lim, lim)
@@ -218,6 +214,10 @@ def runTriadAnimation(
         axisLength=2.5,
         exportGif=False,
         gifFileName="triadre_imu.gif",
+        exportVideo=False,
+        videoFileName="triadre_imu.mp4",
+        fps=25,
+        dpi=120,
         showProgress=False,
 ):
     gravityVectorWorld = np.array([0.0, 0.0, -gravity], dtype=float)
@@ -229,6 +229,12 @@ def runTriadAnimation(
     frameIndices = np.arange(0, len(timeArray), frameStride)
 
     plotLimit = 1.2 * max(axisLength, gravity)
+
+    if exportGif and exportVideo:
+        raise ValueError(
+            "Les résultat ne peut être exporté que dans 1 seul format :"
+            "exportGif et exportVideo ne peuvent pas être True en même temps!"
+        )
 
     # if showProgress:
     # startTime = time.time()
@@ -317,8 +323,34 @@ def runTriadAnimation(
         else:
             aniTriad.save(gifFileName, writer=writer)
 
-    return figTriad, aniTriad
+    if exportVideo:
+        writer = FFMpegWriter(
+            fps=fps,
+            codec="libx264",
+            bitrate=1800,
+            metadata={"artist": "Python / Matplotlib"}
+        )
 
+        if showProgress:
+            start_time = time.time()
+
+            def save_progress_callback(i, n):
+                progress_bar(i + 1, n, prefix="Export MP4 trièdre", start_time=start_time)
+
+            aniTriad.save(
+                videoFileName,
+                writer=writer,
+                dpi=dpi,
+                progress_callback=save_progress_callback
+            )
+        else:
+            aniTriad.save(
+                videoFileName,
+                writer=writer,
+                dpi=dpi
+            )
+
+    return figTriad, aniTriad
 
 
 # =============================================================================
@@ -1167,8 +1199,12 @@ figTriad, aniTriad = runTriadAnimation(
     timeArray=timeArray,
     gravity=simConfig.gravity,
     labelOrientation="trueQuaternionArray",
-    exportGif=True,
-    gifFileName="trièdre_trueQuaternionArray.gif",
+    # exportGif=True,
+    # gifFileName="trièdre_trueQuaternionArray.gif",
+    exportVideo=True,
+    videoFileName="trièdre_trueQuaternionArray.mp4",
+    fps=25,
+    dpi=120,
     showProgress=True,
 )
 
@@ -1179,8 +1215,12 @@ figTriad, aniTriad = runTriadAnimation(
     timeArray=timeArray,
     gravity=simConfig.gravity,
     labelOrientation=results[0].label,
-    exportGif=True,
-    gifFileName="trièdre_estimatedQuaternionArray.gif",
+    # exportGif=True,
+    # gifFileName="trièdre_estimatedQuaternionArray.gif",
+    exportVideo=True,
+    videoFileName="trièdre_estimatedQuaternionArray.mp4",
+    fps=25,
+    dpi=120,
     showProgress=True,
 )
 
