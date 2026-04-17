@@ -23,6 +23,10 @@ import time
 # Class_8_v2->Class_8_v3 : ajout représentation graphique attitude
 # Class_8_v3->Class : Gestion Git+GitHub
 
+
+# https://www.ferdinandpiette.com/blog/2011/04/exemple-dutilisation-du-filtre-de-kalman/
+
+
 # =============================================================================
 # Fonctions utilitaires (indépendantes de tout contexte)
 # =============================================================================
@@ -1083,7 +1087,7 @@ if __name__ == "__main__":
     paramsSweep = UkfParams.createSweepParams(
         paramsBase,
         "processInitialConfidenceStd",
-        [0.1]
+        [0.01, 0.1, 1.0]
     )
 
     print("Run multiples")
@@ -1186,6 +1190,7 @@ if __name__ == "__main__":
     plt.show()
 
 print("Fin plots")
+exit(0)
 
 # =============================================================================
 # Bloc A : représentation 3D du trièdre IMU + gravité
