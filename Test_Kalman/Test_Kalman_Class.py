@@ -17,12 +17,12 @@ from filterpy.kalman import UnscentedKalmanFilter, MerweScaledSigmaPoints
 import sys
 import time
 
+
 # Class_7_v2.5->Class_8_v1 : toutes vares et tous calculs en radians
 # Class_8_v1->Class_8_v2 : rotation alpha autour de y -> rotation alpha autour de u unitaire qcq
 # Class_8_v2->Class_8_v3 : ajout représentation graphique attitude
 # Class_8_v3->Class : Gestion Git+GitHub
 
-# https://www.ferdinandpiette.com/blog/2011/04/exemple-dutilisation-du-filtre-de-kalman/
 
 # =============================================================================
 # Fonctions utilitaires (indépendantes de tout contexte)
@@ -61,26 +61,6 @@ def plotsProgress(init=False, total=None, full=False):
         plotsProgress.total = total
     progress_bar(plotsProgress.current, plotsProgress.total, prefix="Plots", start_time=plotsProgress.startTime)
     plotsProgress.current += 1
-
-
-def loadCSVRecord(filename: str) -> np.ndarray:
-    (
-        timeArray,
-        measuredAccelXArray,
-        measuredAccelYArray,
-        measuredAccelZArray,
-        measuredGyroXArray,
-        measuredGyroYArray,
-        measuredGyroZArray,
-        measuredMagnetoXArray,
-        measuredMagnetoYArray,
-        measuredMagnetoZArray
-    ) = np.loadtxt(
-        filename,
-        delimiter=",",
-        skiprows=1,
-        unpack=True
-    )
 
 
 def normalizeVector(v):
@@ -180,134 +160,180 @@ def quaternionToEuler(q):
     return RollPitchYaw
 
 
-def setEqual3DAxes(ax, lim):
-    ax.set_xlim(-lim, lim)
-    ax.set_ylim(-lim, lim)
-    ax.set_zlim(-lim, lim)
-    ax.set_box_aspect([1, 1, 1])
-
-
 # =============================================================================
-# ADDED : configs élémentaires
+# ADDED : structures de données communes
 # =============================================================================
 
 @dataclass
-class PhysicalModelConfig:
-    TimeStep: float
-    Gravity: float = 9.81
-    RotationAxis: np.ndarray = field(default_factory=lambda: np.array([0.0, 1.0, 0.0], dtype=float))
+class MeasurementSequence:
+    TimeArray: np.ndarray
+    MeasuredAccelArray: np.ndarray  # shape = (SampleSize, 3)
+    MeasuredGyroArray: np.ndarray  # shape = (SampleSize, 3)
 
     def __post_init__(self):
-        self.RotationAxis = normalizeVector(self.RotationAxis)
+        self.TimeArray = np.asarray(self.TimeArray, dtype=float)
+        self.MeasuredAccelArray = np.asarray(self.MeasuredAccelArray, dtype=float)
+        self.MeasuredGyroArray = np.asarray(self.MeasuredGyroArray, dtype=float)
+
+        if self.MeasuredAccelArray.ndim != 2 or self.MeasuredAccelArray.shape[1] != 3:
+            raise ValueError("MeasuredAccelArray doit être de forme (SampleSize, 3).")
+
+        if self.MeasuredGyroArray.ndim != 2 or self.MeasuredGyroArray.shape[1] != 3:
+            raise ValueError("MeasuredGyroArray doit être de forme (SampleSize, 3).")
+
+        if len(self.TimeArray) != self.MeasuredAccelArray.shape[0]:
+            raise ValueError("TimeArray et MeasuredAccelArray n'ont pas la même longueur.")
+
+        if len(self.TimeArray) != self.MeasuredGyroArray.shape[0]:
+            raise ValueError("TimeArray et MeasuredGyroArray n'ont pas la même longueur.")
+
+    @property
+    def SampleSize(self):
+        return len(self.TimeArray)
+
+    # ADDED : alias de compatibilité / confort
+    @property
+    def MeasuredAccelXArray(self):
+        return self.MeasuredAccelArray[:, 0]
+
+    @property
+    def MeasuredAccelYArray(self):
+        return self.MeasuredAccelArray[:, 1]
+
+    @property
+    def MeasuredAccelZArray(self):
+        return self.MeasuredAccelArray[:, 2]
+
+    @property
+    def MeasuredGyroXArray(self):
+        return self.MeasuredGyroArray[:, 0]
+
+    @property
+    def MeasuredGyroYArray(self):
+        return self.MeasuredGyroArray[:, 1]
+
+    @property
+    def MeasuredGyroZArray(self):
+        return self.MeasuredGyroArray[:, 2]
 
 
 @dataclass
-class TimeConfig:
-    TotalTime: Optional[float] = None
-    TimeStep: Optional[float] = None
-    SampleSize: Optional[int] = None
-
-    def __post_init__(self):
-        ProvidedCount = sum(value is None for value in [self.TotalTime, self.TimeStep, self.SampleSize])
-        # MODIFIED : on impose qu'une seule valeur manque, comme dans votre code initial
-        if ProvidedCount != 1:
-            raise ValueError("Fournir exactement 2 valeurs parmi (TotalTime, TimeStep, SampleSize).")
-
-        if self.TotalTime is None:
-            self.TotalTime = self.TimeStep * self.SampleSize
-        elif self.TimeStep is None:
-            self.TimeStep = float(self.TotalTime / self.SampleSize)
-        elif self.SampleSize is None:
-            self.SampleSize = int(self.TotalTime / self.TimeStep)
-
-
-@dataclass
-class SimulationTruthConfig:
-    TrueInitialAlpha: float = 0.0
-    TrueInitialAlphaDot: float = 0.0
-    TrueInitialBiasX: float = 0.0
-    TrueInitialBiasY: float = 0.0
-    TrueInitialBiasZ: float = 0.0
-    AlphaAccelerationProfile: list = field(default_factory=lambda: [[0.0, 0.0]])
-
-
-@dataclass
-class MeasurementNoiseConfig:
-    MeasurementAccelNoiseStd: float = 0.2
-    MeasurementGyroNoiseStd: float = 1.0
-
-
-@dataclass
-class UkfInitialStateConfig:
-    SupposedInitialQuaternion: np.ndarray = field(default_factory=lambda: np.array([1.0, 0.0, 0.0, 0.0], dtype=float))
-    SupposedInitialBiasX: float = 0.0
-    SupposedInitialBiasY: float = 0.0
-    SupposedInitialBiasZ: float = 0.0
-
-    def __post_init__(self):
-        self.SupposedInitialQuaternion = normalizeQuaternion(self.SupposedInitialQuaternion)
-
-
-@dataclass
-class UkfMeasurementNoiseConfig:
-    MeasurementAccelNoiseStd: float = 0.2
-    MeasurementGyroNoiseStd: float = 1.0
-
-
-@dataclass
-class UkfProcessNoiseConfig:
-    ProcessQuaternionNoiseStd: float = 0.01
-    ProcessBiasNoiseStd: float = 0.01
-
-
-@dataclass
-class UkfInitialCovarianceConfig:
-    ProcessInitialConfidenceStd: float = 300.0
+class SimulationTruthData:
+    TimeArray: np.ndarray
+    TrueAlphaArray: np.ndarray
+    TrueAlphaDotArray: np.ndarray
+    TrueQuaternionArray: np.ndarray
+    TrueBiasArray: np.ndarray
 
 
 # =============================================================================
-# Classe SimulationConfig [MODIFIÉE]
-# Rôle : agrégat orienté simulation.
-# Elle assemble la base de temps, la physique commune, la vérité simulée,
-# et le bruit injecté dans les mesures simulées.
+# MODIFIED : chargement CSV -> MeasurementSequence
+# =============================================================================
+
+def loadCSVRecord(fileName: str) -> MeasurementSequence:
+    (
+        timeArray,
+        measuredAccelXArray,
+        measuredAccelYArray,
+        measuredAccelZArray,
+        measuredGyroXArray,
+        measuredGyroYArray,
+        measuredGyroZArray,
+        measuredMagnetoXArray,
+        measuredMagnetoYArray,
+        measuredMagnetoZArray
+    ) = np.loadtxt(
+        fileName,
+        delimiter=",",
+        skiprows=1,
+        unpack=True
+    )
+
+    measuredAccelArray = np.column_stack((
+        measuredAccelXArray,
+        measuredAccelYArray,
+        measuredAccelZArray,
+    ))
+
+    measuredGyroArray = np.column_stack((
+        measuredGyroXArray,
+        measuredGyroYArray,
+        measuredGyroZArray,
+    ))
+
+    return MeasurementSequence(
+        TimeArray=timeArray,
+        MeasuredAccelArray=measuredAccelArray,
+        MeasuredGyroArray=measuredGyroArray,
+    )
+
+
+# =============================================================================
+# Classe SimulationConfig
 # =============================================================================
 
 class SimulationConfig:
 
     def __init__(
-        self,
-        timeConfig: TimeConfig,
-        physicalConfig: PhysicalModelConfig,
-        truthConfig: SimulationTruthConfig,
-        measurementNoiseConfig: MeasurementNoiseConfig,
-        randomSeed: int = 123,
+            self,
+            totalTime: float = None,
+            timeStep: float = None,
+            sampleSize: int = None,
+            randomSeed: int = 123,
+            trueInitialAlpha: float = 0.0,
+            trueInitialAlphadot: float = 0.0,
+            trueInitialBiasX: float = 0.0,
+            trueInitialBiasY: float = 0.0,
+            trueInitialBiasZ: float = 0.0,
+            measurementAccelNoiseStd: float = 0.2,
+            measurementGyroNoiseStd: float = 1.0,
+            gravity: float = 9.81,
+            rotationAxis: np.ndarray = None,
     ):
-        # ADDED
-        self.timeConfig = timeConfig
-        self.physicalConfig = physicalConfig
-        self.truthConfig = truthConfig
-        self.measurementNoiseConfig = measurementNoiseConfig
+        noneCount = [totalTime,timeStep, sampleSize ].count(None)
+        if noneCount == 1:
+            if totalTime is None:
+                self.timeStep = timeStep
+                self.sampleSize = sampleSize
+                self.totalTime = self.timeStep * self.sampleSize
+            elif timeStep is None:
+                self.totalTime = totalTime
+                self.sampleSize = sampleSize
+                self.timeStep = float(self.totalTime / self.sampleSize)
+            elif sampleSize is None:
+                self.totalTime = totalTime
+                self.timeStep = timeStep
+                self.sampleSize = int(self.totalTime / self.timeStep)
+        else:
+            raise ValueError(
+                "Founir 2 valeurs parmi (totalTime, timeStep, sampleSize)!"
+            )
+
         self.randomSeed = randomSeed
 
-        # ADDED : alias de compatibilité pour minimiser les modifications
-        self.totalTime = self.timeConfig.TotalTime
-        self.timeStep = self.timeConfig.TimeStep
-        self.sampleSize = self.timeConfig.SampleSize
+        self.trueInitialAlpha = trueInitialAlpha
+        self.trueInitialAlphaDot = trueInitialAlphadot
+        self.trueInitialBiasX = trueInitialBiasX
+        self.trueInitialBiasY = trueInitialBiasY
+        self.trueInitialBiasZ = trueInitialBiasZ
 
-        self.gravity = self.physicalConfig.Gravity
-        self.rotationAxis = self.physicalConfig.RotationAxis
+        self.measurementAccelNoiseStd = measurementAccelNoiseStd
+        self.measurementGyroNoiseStd = measurementGyroNoiseStd
 
-        self.trueInitialAlpha = self.truthConfig.TrueInitialAlpha
-        self.trueInitialAlphaDot = self.truthConfig.TrueInitialAlphaDot
-        self.trueInitialBiasX = self.truthConfig.TrueInitialBiasX
-        self.trueInitialBiasY = self.truthConfig.TrueInitialBiasY
-        self.trueInitialBiasZ = self.truthConfig.TrueInitialBiasZ
+        self.gravity = gravity
 
-        self.measurementAccelNoiseStd = self.measurementNoiseConfig.MeasurementAccelNoiseStd
-        self.measurementGyroNoiseStd = self.measurementNoiseConfig.MeasurementGyroNoiseStd
+        if rotationAxis is None:
+            rotationAxis = np.array([0.0, 1.0, 0.0], dtype=float)
+        else:
+            rotationAxis = np.array(rotationAxis, dtype=float)
+
+        axisNorm = np.linalg.norm(rotationAxis)
+        if axisNorm <= 0.0:
+            raise ValueError("rotationAxis ne doit pas être nul")
+        self.rotationAxis = rotationAxis / axisNorm
 
         np.random.seed(self.randomSeed)
-        self.setAngularAccelerationProfile(self.truthConfig.AlphaAccelerationProfile)
+        self.setAngularAccelerationProfile()
 
     def alphaToQuaternion(self, alpha):
         alphaArray = np.atleast_1d(np.asarray(alpha, dtype=float))
@@ -330,6 +356,7 @@ class SimulationConfig:
         alphaAccelerationProfile = np.array(alphaAccelerationProfile, dtype=float)
         self.alphaAccelerationProfile = alphaAccelerationProfile
 
+    # MODIFIED : retour de deux objets structurés
     def generateTrueValuesAndMeasurements(self):
         print(f"TimeStep : {self.timeStep}")
 
@@ -362,21 +389,21 @@ class SimulationConfig:
         trueAccelArray = np.array([
             rotateVectorWorldToBody(q, gravityWorld)
             for q in trueQuaternionArray
-        ]).T
+        ])
 
         accelNoise = np.random.normal(
             0.0,
             self.measurementAccelNoiseStd,
-            size=(3, self.sampleSize)
+            size=(self.sampleSize, 3)  # MODIFIED
         )
         measuredAccelArray = trueAccelArray + accelNoise
 
-        trueGyroArray = (trueAlphaDotArray[None, :] * self.rotationAxis[:, None])
+        trueGyroArray = trueAlphaDotArray[:, None] * self.rotationAxis[None, :]  # MODIFIED
 
         gyroNoise = np.random.normal(
             0.0,
             self.measurementGyroNoiseStd,
-            size=(3, self.sampleSize)
+            size=(self.sampleSize, 3)  # MODIFIED
         )
 
         gyroBias = np.array([
@@ -385,38 +412,42 @@ class SimulationConfig:
             self.trueInitialBiasZ,
         ], dtype=float)
 
-        measuredGyroArray = trueGyroArray + gyroBias[:, None] + gyroNoise
+        measuredGyroArray = trueGyroArray + gyroBias[None, :] + gyroNoise  # MODIFIED
 
-        return (
-            timeArray,
-            trueAlphaArray,
-            trueAlphaDotArray,
-            trueQuaternionArray,
-            measuredAccelArray[0, :],
-            measuredAccelArray[1, :],
-            measuredAccelArray[2, :],
-            measuredGyroArray[0, :],
-            measuredGyroArray[1, :],
-            measuredGyroArray[2, :],
+        trueBiasArray = np.tile(gyroBias, (self.sampleSize, 1))
+
+        truthData = SimulationTruthData(
+            TimeArray=timeArray,
+            TrueAlphaArray=trueAlphaArray,
+            TrueAlphaDotArray=trueAlphaDotArray,
+            TrueQuaternionArray=trueQuaternionArray,
+            TrueBiasArray=trueBiasArray,
         )
+
+        measurementSequence = MeasurementSequence(
+            TimeArray=timeArray,
+            MeasuredAccelArray=measuredAccelArray,
+            MeasuredGyroArray=measuredGyroArray,
+        )
+
+        return truthData, measurementSequence
 
 
 # =============================================================================
-# Classe UkfModel [MODIFIÉE]
-# Rôle : modèle physique invariant du filtre.
+# Classe UkfModel
 # =============================================================================
 
 class UkfModel:
 
     def __init__(
-        self,
-        physicalConfig: PhysicalModelConfig,  # MODIFIED
-        sigmaAlpha: float = 0.1,
-        sigmaBeta: float = 2.0,
-        sigmaKappa: float = 0.0,
+            self,
+            simConfig: SimulationConfig,
+            sigmaAlpha: float = 0.1,
+            sigmaBeta: float = 2.0,
+            sigmaKappa: float = 0.0,
     ):
-        self.timeStep = physicalConfig.TimeStep  # MODIFIED
-        self.gravity = physicalConfig.Gravity  # MODIFIED
+        self.timeStep = simConfig.timeStep
+        self.gravity = simConfig.gravity
         self.sigmaAlpha = sigmaAlpha
         self.sigmaBeta = sigmaBeta
         self.sigmaKappa = sigmaKappa
@@ -458,48 +489,53 @@ class UkfModel:
 
 
 # =============================================================================
-# Classe UkfParams [MODIFIÉE]
-# Rôle : agrégat des réglages numériques du filtre, indépendant de la simulation.
+# Classe UkfParams
 # =============================================================================
 
 class UkfParams:
 
     def __init__(
-        self,
-        initialStateConfig: UkfInitialStateConfig,  # ADDED
-        measurementNoiseConfig: UkfMeasurementNoiseConfig,  # ADDED
-        processNoiseConfig: UkfProcessNoiseConfig,  # ADDED
-        initialCovarianceConfig: UkfInitialCovarianceConfig,  # ADDED
-        label: str = "",
+            self,
+            simConfig: SimulationConfig,
+            supposedInitialQuaternion: np.ndarray = None,
+            supposedInitialBiasX: float = 0.0,
+            supposedInitialBiasY: float = 0.0,
+            supposedInitialBiasZ: float = 0.0,
+            processQuaternionNoiseStd: float = 0.01,
+            processBiasNoiseStd: float = 0.01,
+            processInitialConfidenceStd: float = 300.0,
+            label: str = "",
     ):
-        # ADDED
-        self.initialStateConfig = initialStateConfig
-        self.measurementNoiseConfig = measurementNoiseConfig
-        self.processNoiseConfig = processNoiseConfig
-        self.initialCovarianceConfig = initialCovarianceConfig
+        self.simConfig = simConfig
+        self.supposedInitialQuaternion = (
+            np.array([1.0, 0.0, 0.0, 0.0], dtype=float)
+            if supposedInitialQuaternion is None
+            else np.array(supposedInitialQuaternion, dtype=float)
+        )
+
+        self.supposedInitialBiasX = supposedInitialBiasX
+        self.supposedInitialBiasY = supposedInitialBiasY
+        self.supposedInitialBiasZ = supposedInitialBiasZ
+
+        self.measurementAccelNoiseStd = simConfig.measurementAccelNoiseStd
+        self.measurementGyroNoiseStd = simConfig.measurementGyroNoiseStd
+
+        self.processQuaternionNoiseStd = processQuaternionNoiseStd
+        self.processBiasNoiseStd = processBiasNoiseStd
+        self.processInitialConfidenceStd = processInitialConfidenceStd
         self.label = label
-
-        # ADDED : alias de compatibilité pour minimiser les modifications
-        self.supposedInitialQuaternion = self.initialStateConfig.SupposedInitialQuaternion
-        self.supposedInitialBiasX = self.initialStateConfig.SupposedInitialBiasX
-        self.supposedInitialBiasY = self.initialStateConfig.SupposedInitialBiasY
-        self.supposedInitialBiasZ = self.initialStateConfig.SupposedInitialBiasZ
-
-        self.measurementAccelNoiseStd = self.measurementNoiseConfig.MeasurementAccelNoiseStd
-        self.measurementGyroNoiseStd = self.measurementNoiseConfig.MeasurementGyroNoiseStd
-
-        self.processQuaternionNoiseStd = self.processNoiseConfig.ProcessQuaternionNoiseStd
-        self.processBiasNoiseStd = self.processNoiseConfig.ProcessBiasNoiseStd
-
-        self.processInitialConfidenceStd = self.initialCovarianceConfig.ProcessInitialConfidenceStd
 
     @classmethod
     def getConstructorAttrs(cls, base: "UkfParams"):
         constructorAttrs = {
-            "initialStateConfig": base.initialStateConfig,  # MODIFIED
-            "measurementNoiseConfig": base.measurementNoiseConfig,  # MODIFIED
-            "processNoiseConfig": base.processNoiseConfig,  # MODIFIED
-            "initialCovarianceConfig": base.initialCovarianceConfig,  # MODIFIED
+            "simConfig": base.simConfig,
+            "supposedInitialQuaternion": base.supposedInitialQuaternion,
+            "supposedInitialBiasX": base.supposedInitialBiasX,
+            "supposedInitialBiasY": base.supposedInitialBiasY,
+            "supposedInitialBiasZ": base.supposedInitialBiasZ,
+            "processQuaternionNoiseStd": base.processQuaternionNoiseStd,
+            "processBiasNoiseStd": base.processBiasNoiseStd,
+            "processInitialConfidenceStd": base.processInitialConfidenceStd,
             "label": base.label,
         }
         return constructorAttrs
@@ -522,65 +558,32 @@ class UkfParams:
 
     @classmethod
     def createSweepParams(
-        cls,
-        base: "UkfParams",
-        paramName: str,
-        paramValues,
+            cls,
+            base: "UkfParams",
+            paramName: str,
+            paramValues,
     ) -> list["UkfParams"]:
 
+        constructorAttrs = cls.getConstructorAttrs(base)
+
+        if paramName not in constructorAttrs:
+            raise ValueError(
+                f"UkfParams.createSweepParams() : paramètre inconnu ou non balayable : '{paramName}'"
+            )
+
         paramsList = []
-
         for paramValue in paramValues:
-            # MODIFIED : balayage ciblé sur quelques champs fréquents
-            newInitialStateConfig = base.initialStateConfig
-            newMeasurementNoiseConfig = base.measurementNoiseConfig
-            newProcessNoiseConfig = base.processNoiseConfig
-            newInitialCovarianceConfig = base.initialCovarianceConfig
-
-            if paramName == "ProcessQuaternionNoiseStd":
-                newProcessNoiseConfig = UkfProcessNoiseConfig(
-                    ProcessQuaternionNoiseStd=paramValue,
-                    ProcessBiasNoiseStd=base.processNoiseConfig.ProcessBiasNoiseStd,
-                )
-            elif paramName == "ProcessBiasNoiseStd":
-                newProcessNoiseConfig = UkfProcessNoiseConfig(
-                    ProcessQuaternionNoiseStd=base.processNoiseConfig.ProcessQuaternionNoiseStd,
-                    ProcessBiasNoiseStd=paramValue,
-                )
-            elif paramName == "ProcessInitialConfidenceStd":
-                newInitialCovarianceConfig = UkfInitialCovarianceConfig(
-                    ProcessInitialConfidenceStd=paramValue
-                )
-            elif paramName == "MeasurementAccelNoiseStd":
-                newMeasurementNoiseConfig = UkfMeasurementNoiseConfig(
-                    MeasurementAccelNoiseStd=paramValue,
-                    MeasurementGyroNoiseStd=base.measurementNoiseConfig.MeasurementGyroNoiseStd,
-                )
-            elif paramName == "MeasurementGyroNoiseStd":
-                newMeasurementNoiseConfig = UkfMeasurementNoiseConfig(
-                    MeasurementAccelNoiseStd=base.measurementNoiseConfig.MeasurementAccelNoiseStd,
-                    MeasurementGyroNoiseStd=paramValue,
-                )
-            else:
-                raise ValueError(
-                    f"UkfParams.createSweepParams() : paramètre inconnu ou non balayable : '{paramName}'"
-                )
-
+            labelName = "label"
+            labelValue = f"{paramName} = {paramValue}"
             paramsList.append(
-                cls(
-                    initialStateConfig=newInitialStateConfig,
-                    measurementNoiseConfig=newMeasurementNoiseConfig,
-                    processNoiseConfig=newProcessNoiseConfig,
-                    initialCovarianceConfig=newInitialCovarianceConfig,
-                    label=base.label + f"[{paramName} = {paramValue}]",
-                )
+                cls.fromBase(base, **{paramName: paramValue, labelName: labelValue})
             )
 
         return paramsList
 
 
 # =============================================================================
-# Classe UkfResult [INCHANGÉE]
+# Classe UkfResult
 # =============================================================================
 
 @dataclass
@@ -593,23 +596,23 @@ class UkfResult:
 
 
 # =============================================================================
-# Classe UkfRunner [quasi inchangée]
+# Classe UkfRunner [MODIFIÉE]
 # =============================================================================
 
 class UkfRunner:
 
     def run(
-        self,
-        model: UkfModel,
-        params: UkfParams,
-        measuredAccelXArray: np.ndarray,
-        measuredAccelYArray: np.ndarray,
-        measuredAccelZArray: np.ndarray,
-        measuredGyroXArray: np.ndarray,
-        measuredGyroYArray: np.ndarray,
-        measuredGyroZArray: np.ndarray,
-        label: str = "run",
+            self,
+            model: UkfModel,
+            params: UkfParams,
+            measurementSequence: MeasurementSequence,  # MODIFIED
+            label: str = "run",
     ) -> UkfResult:
+        """
+        Construit un filtre UKF neuf à partir de (model, params),
+        exécute la boucle predict/update sur les mesures fournies,
+        et retourne un UkfResult étiqueté.
+        """
         sigmaPoints = MerweScaledSigmaPoints(
             n=7,
             alpha=model.sigmaAlpha,
@@ -662,18 +665,16 @@ class UkfRunner:
         estimatedEulerList = []
         estimatedBiasList = []
 
-        for accelX, accelY, accelZ, gyroX, gyroY, gyroZ in zip(
-            measuredAccelXArray,
-            measuredAccelYArray,
-            measuredAccelZArray,
-            measuredGyroXArray,
-            measuredGyroYArray,
-            measuredGyroZArray,
+        # MODIFIED : boucle sur la séquence de mesures
+        for measuredAccel, measuredGyro in zip(
+                measurementSequence.MeasuredAccelArray,
+                measurementSequence.MeasuredGyroArray,
         ):
-            model.setCurrentGyroMeasurement([gyroX, gyroY, gyroZ])
+            model.setCurrentGyroMeasurement(measuredGyro)
 
             ukf.predict()
-            ukf.update(np.array([accelX, accelY, accelZ, gyroX, gyroY, gyroZ], dtype=float))
+
+            ukf.update(np.hstack((measuredAccel, measuredGyro)).astype(float))
             ukf.x[0:4] = normalizeQuaternion(ukf.x[0:4])
 
             qEst = ukf.x[0:4].copy()
@@ -691,14 +692,11 @@ class UkfRunner:
             estimatedEulerArray=np.array(estimatedEulerList),
             estimatedBiasArray=np.array(estimatedBiasList),
         )
-# *********************************************************************************************************************
-#
-#
-#
-#
-#
-#
-# *********************************************************************************************************************
+
+
+# =============================================================================
+# EXEMPLE D'UTILISATION
+# =============================================================================
 
 if __name__ == "__main__":
 
@@ -706,117 +704,66 @@ if __name__ == "__main__":
     timeStep = 0.01
 
     print("Config")
-
-    # ADDED : nouveau découpage explicite
-    timeConfig = TimeConfig(
-        TotalTime=totalTime,
-        TimeStep=timeStep,
-    )
-
-    physicalConfig = PhysicalModelConfig(
-        TimeStep=timeConfig.TimeStep,
-        Gravity=9.81,
-        RotationAxis=normalizeVector([1.0, 1.0, 0.0]),
-    )
-
-    truthConfig = SimulationTruthConfig(
-        TrueInitialAlpha=np.deg2rad(-45.0),
-        TrueInitialAlphaDot=np.deg2rad(0.0),
-        TrueInitialBiasX=np.deg2rad(10.0),
-        TrueInitialBiasY=np.deg2rad(15.0),
-        TrueInitialBiasZ=np.deg2rad(20.0),
-        AlphaAccelerationProfile=[
-            [0.0, np.deg2rad(0.0)],
-            [0.1, np.deg2rad(0.30)],
-            [0.3, np.deg2rad(-0.30)],
-            [0.5, np.deg2rad(-0.30)],
-            [0.7, np.deg2rad(0.30)],
-            [0.9, np.deg2rad(0.0)],
-        ],
-    )
-
-    measurementNoiseConfig = MeasurementNoiseConfig(
-        MeasurementAccelNoiseStd=0.2,
-        MeasurementGyroNoiseStd=np.deg2rad(10.0),
-    )
-
     simConfig = SimulationConfig(
-        timeConfig=timeConfig,
-        physicalConfig=physicalConfig,
-        truthConfig=truthConfig,
-        measurementNoiseConfig=measurementNoiseConfig,
-        randomSeed=123,
+        totalTime=totalTime,
+        timeStep=timeStep,
+        trueInitialAlpha=np.deg2rad(-45.0),
+        trueInitialAlphadot=np.deg2rad(0.0),
+        trueInitialBiasX=np.deg2rad(10.0),
+        trueInitialBiasY=np.deg2rad(15.0),
+        trueInitialBiasZ=np.deg2rad(20.0),
+        measurementAccelNoiseStd=0.2,
+        measurementGyroNoiseStd=np.deg2rad(10.0),
+        rotationAxis=normalizeVector([1.0, 1.0, 0.0]),
     )
 
-    trueBiases = np.tile(
+    trueAngularAccel = 0.30
+    simConfig.setAngularAccelerationProfile(
         [
-            simConfig.trueInitialBiasX,
-            simConfig.trueInitialBiasY,
-            simConfig.trueInitialBiasZ,
-        ],
-        (simConfig.sampleSize, 1)
+            [0.0, np.deg2rad(0.0)],
+            [.1, np.deg2rad(trueAngularAccel)],
+            [.3, np.deg2rad(-trueAngularAccel)],
+            [.5, np.deg2rad(-trueAngularAccel)],
+            [.7, np.deg2rad(trueAngularAccel)],
+            [.9, np.deg2rad(0.0)],
+        ]
     )
 
     print("True Values")
-    (
-        timeArray,
-        trueAlphaArray,
-        trueAlphaDotArray,
-        trueQuaternionArray,
-        measuredAccelXArray,
-        measuredAccelYArray,
-        measuredAccelZArray,
-        measuredGyroXArray,
-        measuredGyroYArray,
-        measuredGyroZArray,
-    ) = simConfig.generateTrueValuesAndMeasurements()
+    truthData, measurementSequence = simConfig.generateTrueValuesAndMeasurements()  # MODIFIED
 
-    trueEulerArray = quaternionToEuler(trueQuaternionArray)
+    trueEulerArray = quaternionToEuler(truthData.TrueQuaternionArray)  # MODIFIED
 
     print("Model + Runner")
-    ukfModel = UkfModel(physicalConfig)  # MODIFIED
+    ukfModel = UkfModel(simConfig)
     runner = UkfRunner()
 
     print("Param Réf")
     paramsRef = UkfParams(
-        initialStateConfig=UkfInitialStateConfig(
-            SupposedInitialQuaternion=np.array([1.0, 0.0, 0.0, 0.0], dtype=float),
-            SupposedInitialBiasX=0.0,
-            SupposedInitialBiasY=0.0,
-            SupposedInitialBiasZ=0.0,
-        ),
-        measurementNoiseConfig=UkfMeasurementNoiseConfig(
-            MeasurementAccelNoiseStd=measurementNoiseConfig.MeasurementAccelNoiseStd,
-            MeasurementGyroNoiseStd=measurementNoiseConfig.MeasurementGyroNoiseStd,
-        ),
-        processNoiseConfig=UkfProcessNoiseConfig(
-            ProcessQuaternionNoiseStd=0.001,
-            ProcessBiasNoiseStd=0.001,
-        ),
-        initialCovarianceConfig=UkfInitialCovarianceConfig(
-            ProcessInitialConfidenceStd=1.0,
-        ),
+        simConfig,
+        supposedInitialQuaternion=None,
+        supposedInitialBiasX=0.0,
+        supposedInitialBiasY=0.0,
+        supposedInitialBiasZ=0.0,
+        processQuaternionNoiseStd=0.001,
+        processBiasNoiseStd=0.001,
+        processInitialConfidenceStd=1.0,
         label="Référence",
     )
 
     print("Param Base")
-    paramsBase = UkfParams(
-        initialStateConfig=paramsRef.initialStateConfig,
-        measurementNoiseConfig=paramsRef.measurementNoiseConfig,
-        processNoiseConfig=UkfProcessNoiseConfig(
-            ProcessQuaternionNoiseStd=0.01,
-            ProcessBiasNoiseStd=0.001,
-        ),
-        initialCovarianceConfig=UkfInitialCovarianceConfig(
-            ProcessInitialConfidenceStd=0.1,
-        ),
+    paramsBase = UkfParams.fromBase(
+        paramsRef,
+        processQuaternionNoiseStd=0.01,
+        processBiasNoiseStd=0.001,
+        processInitialConfidenceStd=0.1,
         label="Base",
     )
 
     print("Params multiples")
     paramsSweep = UkfParams.createSweepParams(
         paramsBase,
-        "ProcessInitialConfidenceStd",
+        "processInitialConfidenceStd",
         [0.01, 0.1, 1.0]
     )
 
@@ -828,72 +775,74 @@ if __name__ == "__main__":
             runner.run(
                 ukfModel,
                 currentParams,
-                measuredAccelXArray,
-                measuredAccelYArray,
-                measuredAccelZArray,
-                measuredGyroXArray,
-                measuredGyroYArray,
-                measuredGyroZArray,
+                measurementSequence,  # MODIFIED
                 label=currentLabel
             )
         )
 
-
-
-    # --- Cellule 4 : affichage ---
     print("Plots multiples", flush=True)
     plotsProgress(init=True, total=50)
     fig, axes = plt.subplots(11, 1, figsize=(18, 36), sharex=True)
     plotsProgress()
+
     for res in results:
-        axes[0].plot(timeArray, res.estimatedQuaternionArray[:, 0], label="estimatedQuaternionArray " + res.label)
-        plotsProgress()
-        axes[1].plot(timeArray, res.estimatedQuaternionArray[:, 1], label="estimatedQuaternionArray " + res.label)
-        plotsProgress()
-        axes[2].plot(timeArray, res.estimatedQuaternionArray[:, 2], label="estimatedQuaternionArray " + res.label)
-        plotsProgress()
-        axes[3].plot(timeArray, res.estimatedQuaternionArray[:, 3], label="estimatedQuaternionArray " + res.label)
-        plotsProgress()
-        axes[4].plot(timeArray, np.linalg.norm(res.estimatedQuaternionArray, axis=-1),
+        axes[0].plot(measurementSequence.TimeArray, res.estimatedQuaternionArray[:, 0],
                      label="estimatedQuaternionArray " + res.label)
         plotsProgress()
-        axes[5].plot(timeArray, np.rad2deg(res.estimatedEulerArray[:, 0]), label="estimatedEulerArray " + res.label)
+        axes[1].plot(measurementSequence.TimeArray, res.estimatedQuaternionArray[:, 1],
+                     label="estimatedQuaternionArray " + res.label)
         plotsProgress()
-        axes[6].plot(timeArray, np.rad2deg(res.estimatedEulerArray[:, 1]), label="estimatedEulerArray " + res.label)
+        axes[2].plot(measurementSequence.TimeArray, res.estimatedQuaternionArray[:, 2],
+                     label="estimatedQuaternionArray " + res.label)
         plotsProgress()
-        axes[7].plot(timeArray, np.rad2deg(res.estimatedEulerArray[:, 2]), label="estimatedEulerArray " + res.label)
+        axes[3].plot(measurementSequence.TimeArray, res.estimatedQuaternionArray[:, 3],
+                     label="estimatedQuaternionArray " + res.label)
         plotsProgress()
-        axes[8].plot(timeArray, np.rad2deg(res.estimatedBiasArray[:, 0]), label="estimatedBiasArray " + res.label)
+        axes[4].plot(measurementSequence.TimeArray, np.linalg.norm(res.estimatedQuaternionArray, axis=-1),
+                     label="estimatedQuaternionArray " + res.label)
         plotsProgress()
-        axes[9].plot(timeArray, np.rad2deg(res.estimatedBiasArray[:, 1]), label="estimatedBiasArray " + res.label)
+        axes[5].plot(measurementSequence.TimeArray, np.rad2deg(res.estimatedEulerArray[:, 0]),
+                     label="estimatedEulerArray " + res.label)
         plotsProgress()
-        axes[10].plot(timeArray, np.rad2deg(res.estimatedBiasArray[:, 2]), label="estimatedBiasArray " + res.label)
+        axes[6].plot(measurementSequence.TimeArray, np.rad2deg(res.estimatedEulerArray[:, 1]),
+                     label="estimatedEulerArray " + res.label)
+        plotsProgress()
+        axes[7].plot(measurementSequence.TimeArray, np.rad2deg(res.estimatedEulerArray[:, 2]),
+                     label="estimatedEulerArray " + res.label)
+        plotsProgress()
+        axes[8].plot(measurementSequence.TimeArray, np.rad2deg(res.estimatedBiasArray[:, 0]),
+                     label="estimatedBiasArray " + res.label)
+        plotsProgress()
+        axes[9].plot(measurementSequence.TimeArray, np.rad2deg(res.estimatedBiasArray[:, 1]),
+                     label="estimatedBiasArray " + res.label)
+        plotsProgress()
+        axes[10].plot(measurementSequence.TimeArray, np.rad2deg(res.estimatedBiasArray[:, 2]),
+                      label="estimatedBiasArray " + res.label)
         plotsProgress()
 
-    axes[0].plot(timeArray, trueQuaternionArray[:, 0], 'k--', label="trueQuaternion qw")
+    axes[0].plot(truthData.TimeArray, truthData.TrueQuaternionArray[:, 0], 'k--', label="trueQuaternion qw")
     plotsProgress()
-    axes[1].plot(timeArray, trueQuaternionArray[:, 1], 'k--', label="trueQuaternion qx")
+    axes[1].plot(truthData.TimeArray, truthData.TrueQuaternionArray[:, 1], 'k--', label="trueQuaternion qx")
     plotsProgress()
-    axes[2].plot(timeArray, trueQuaternionArray[:, 2], 'k--', label="trueQuaternion qy")
+    axes[2].plot(truthData.TimeArray, truthData.TrueQuaternionArray[:, 2], 'k--', label="trueQuaternion qy")
     plotsProgress()
-    axes[3].plot(timeArray, trueQuaternionArray[:, 3], 'k--', label="trueQuaternion qz")
+    axes[3].plot(truthData.TimeArray, truthData.TrueQuaternionArray[:, 3], 'k--', label="trueQuaternion qz")
     plotsProgress()
-    axes[4].plot(timeArray, np.linalg.norm(trueQuaternionArray, axis=-1), 'k--', label="trueQuaternion Norm")
+    axes[4].plot(truthData.TimeArray, np.linalg.norm(truthData.TrueQuaternionArray, axis=-1), 'k--',
+                 label="trueQuaternion Norm")
     plotsProgress()
 
-    # axes[5].plot(timeArray, np.rad2deg([0] * simConfig.sampleSize), 'k--', label="Roll")
-    axes[5].plot(timeArray, np.rad2deg(trueEulerArray[:, 0]), 'k--', label="Roll")
+    axes[5].plot(truthData.TimeArray, np.rad2deg(trueEulerArray[:, 0]), 'k--', label="Roll")
     plotsProgress()
-    axes[6].plot(timeArray, np.rad2deg(trueEulerArray[:, 1]), 'k--', label="Pitch")
+    axes[6].plot(truthData.TimeArray, np.rad2deg(trueEulerArray[:, 1]), 'k--', label="Pitch")
     plotsProgress()
-    axes[7].plot(timeArray, np.rad2deg(trueEulerArray[:, 2]), 'k--', label="Yaw")
+    axes[7].plot(truthData.TimeArray, np.rad2deg(trueEulerArray[:, 2]), 'k--', label="Yaw")
     plotsProgress()
-    # axes[7].plot(timeArray, np.rad2deg([0] * simConfig.sampleSize), 'k--', label="Yaw")
-    axes[8].plot(timeArray, np.rad2deg(trueBiases[:, 0]), 'k--', label="trueBiases")
+    axes[8].plot(truthData.TimeArray, np.rad2deg(truthData.TrueBiasArray[:, 0]), 'k--', label="trueBiases")
     plotsProgress()
-    axes[9].plot(timeArray, np.rad2deg(trueBiases[:, 1]), 'k--', label="trueBiases")
+    axes[9].plot(truthData.TimeArray, np.rad2deg(truthData.TrueBiasArray[:, 1]), 'k--', label="trueBiases")
     plotsProgress()
-    axes[10].plot(timeArray, np.rad2deg(trueBiases[:, 2]), 'k--', label="trueBiases")
+    axes[10].plot(truthData.TimeArray, np.rad2deg(truthData.TrueBiasArray[:, 2]), 'k--', label="trueBiases")
     plotsProgress()
 
     axes[0].set_ylim(-1.0, 1.0)
@@ -909,8 +858,6 @@ if __name__ == "__main__":
     axes[10].set_ylim(-200.0, 200.0)
     plotsProgress(full=True)
 
-    # titles = [np.reshape(["Quaternions (-)"]*4, (4,1)), np.reshape(["EulerDeg (°)"]*3, (3,1)), np.reshape(["Biais (°/s)"]*3, (3,1))]
-    # titles = np.reshape(titles, (10, 1, 1))
     titles = ["Quaternions (-)"] * 4 + ["Module Quat"] + ["EulerRPY (°)"] * 3 + ["Biais (°/s)"] * 3
     for ax, title in zip(axes, titles):
         ax.set_ylabel(title)
