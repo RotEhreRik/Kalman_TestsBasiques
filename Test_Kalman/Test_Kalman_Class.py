@@ -290,25 +290,63 @@ class SimulationConfig:
             gravity: float = 9.81,
             rotationAxis: np.ndarray = None,
     ):
+
+        self._init_simulation_parameters(totalTime, timeStep, sampleSize)
+        self._init_general_parameters(
+            randomSeed=randomSeed,
+            trueInitialAlpha=trueInitialAlpha,
+            trueInitialAlphadot=trueInitialAlphadot,
+            trueInitialBiasX=trueInitialBiasX,
+            trueInitialBiasY=trueInitialBiasY,
+            trueInitialBiasZ=trueInitialBiasZ,
+            measurementAccelNoiseStd=measurementAccelNoiseStd,
+            measurementGyroNoiseStd=measurementGyroNoiseStd,
+            gravity=gravity,
+            rotationAxis=rotationAxis,
+        )
+
+        np.random.seed(self.randomSeed)
+        self.setAngularAccelerationProfile()
+
+    def _init_simulation_parameters(
+            self,
+            totalTime: float,
+            timeStep: float,
+            sampleSize: int,
+    ):
         noneCount = [totalTime,timeStep, sampleSize ].count(None)
-        if noneCount == 1:
-            if totalTime is None:
-                self.timeStep = timeStep
-                self.sampleSize = sampleSize
-                self.totalTime = self.timeStep * self.sampleSize
-            elif timeStep is None:
-                self.totalTime = totalTime
-                self.sampleSize = sampleSize
-                self.timeStep = float(self.totalTime / self.sampleSize)
-            elif sampleSize is None:
-                self.totalTime = totalTime
-                self.timeStep = timeStep
-                self.sampleSize = int(self.totalTime / self.timeStep)
-        else:
+
+        if noneCount != 1:
             raise ValueError(
-                "Founir 2 valeurs parmi (totalTime, timeStep, sampleSize)!"
+                "Fournir exactement 2 valeurs parmi (totalTime, timeStep, sampleSize) !"
             )
 
+        if totalTime is None:
+            self.timeStep = timeStep
+            self.sampleSize = sampleSize
+            self.totalTime = self.timeStep * self.sampleSize
+        elif timeStep is None:
+            self.totalTime = totalTime
+            self.sampleSize = sampleSize
+            self.timeStep = float(self.totalTime / self.sampleSize)
+        elif sampleSize is None:
+            self.totalTime = totalTime
+            self.timeStep = timeStep
+            self.sampleSize = int(self.totalTime / self.timeStep)
+
+    def _init_general_parameters(
+                self,
+                randomSeed: int,
+                trueInitialAlpha: float,
+                trueInitialAlphadot: float,
+                trueInitialBiasX: float,
+                trueInitialBiasY: float,
+                trueInitialBiasZ: float,
+                measurementAccelNoiseStd: float,
+                measurementGyroNoiseStd: float,
+                gravity: float,
+                rotationAxis: np.ndarray,
+        ):
         self.randomSeed = randomSeed
 
         self.trueInitialAlpha = trueInitialAlpha
@@ -332,8 +370,7 @@ class SimulationConfig:
             raise ValueError("rotationAxis ne doit pas être nul")
         self.rotationAxis = rotationAxis / axisNorm
 
-        np.random.seed(self.randomSeed)
-        self.setAngularAccelerationProfile()
+
 
     def alphaToQuaternion(self, alpha):
         alphaArray = np.atleast_1d(np.asarray(alpha, dtype=float))
@@ -356,8 +393,13 @@ class SimulationConfig:
         alphaAccelerationProfile = np.array(alphaAccelerationProfile, dtype=float)
         self.alphaAccelerationProfile = alphaAccelerationProfile
 
-    # MODIFIED : retour de deux objets structurés
-    def generateTrueValuesAndMeasurements(self):
+
+
+
+
+
+
+    def generateTrueValues(self):
         print(f"TimeStep : {self.timeStep}")
 
         timeArray = np.arange(self.sampleSize, dtype=float) * self.timeStep
@@ -367,44 +409,24 @@ class SimulationConfig:
         currentAlpha = self.trueInitialAlpha
         currentAlphaDot = self.trueInitialAlphaDot
 
-        alphadotDots = self.alphaAccelerationProfile
+        alphaDotDots = self.alphaAccelerationProfile
 
         percentIndex = 0
         for indexTime in range(self.sampleSize):
             currentTime = timeArray[indexTime]
             timeRatio = currentTime / self.totalTime
 
-            if timeRatio > alphadotDots[percentIndex + 1][0]:
+            if timeRatio > alphaDotDots[percentIndex + 1][0]:
                 percentIndex = percentIndex + 1
-            currentAlphaDotDot = alphadotDots[percentIndex][1]
 
+            currentAlphaDotDot = alphaDotDots[percentIndex][1]
             currentAlphaDot = currentAlphaDot + currentAlphaDotDot * self.timeStep
             currentAlpha = currentAlpha + currentAlphaDot * self.timeStep
+
             trueAlphaArray[indexTime] = currentAlpha
             trueAlphaDotArray[indexTime] = currentAlphaDot
 
         trueQuaternionArray = self.alphaToQuaternion(trueAlphaArray)
-
-        gravityWorld = np.array([0.0, 0.0, self.gravity], dtype=float)
-        trueAccelArray = np.array([
-            rotateVectorWorldToBody(q, gravityWorld)
-            for q in trueQuaternionArray
-        ])
-
-        accelNoise = np.random.normal(
-            0.0,
-            self.measurementAccelNoiseStd,
-            size=(self.sampleSize, 3)  # MODIFIED
-        )
-        measuredAccelArray = trueAccelArray + accelNoise
-
-        trueGyroArray = trueAlphaDotArray[:, None] * self.rotationAxis[None, :]  # MODIFIED
-
-        gyroNoise = np.random.normal(
-            0.0,
-            self.measurementGyroNoiseStd,
-            size=(self.sampleSize, 3)  # MODIFIED
-        )
 
         gyroBias = np.array([
             self.trueInitialBiasX,
@@ -412,11 +434,9 @@ class SimulationConfig:
             self.trueInitialBiasZ,
         ], dtype=float)
 
-        measuredGyroArray = trueGyroArray + gyroBias[None, :] + gyroNoise  # MODIFIED
-
         trueBiasArray = np.tile(gyroBias, (self.sampleSize, 1))
 
-        truthData = SimulationTruthData(
+        return SimulationTruthData(
             TimeArray=timeArray,
             TrueAlphaArray=trueAlphaArray,
             TrueAlphaDotArray=trueAlphaDotArray,
@@ -424,12 +444,41 @@ class SimulationConfig:
             TrueBiasArray=trueBiasArray,
         )
 
-        measurementSequence = MeasurementSequence(
-            TimeArray=timeArray,
+    def generateMeasurements(self, truthData: SimulationTruthData):
+        gravityWorld = np.array([0.0, 0.0, self.gravity], dtype=float)
+
+        trueAccelArray = np.array([
+            rotateVectorWorldToBody(q, gravityWorld)
+            for q in truthData.TrueQuaternionArray
+        ])
+
+        accelNoise = np.random.normal(
+            0.0,
+            self.measurementAccelNoiseStd,
+            size=(self.sampleSize, 3)
+        )
+        measuredAccelArray = trueAccelArray + accelNoise
+
+        trueGyroArray = truthData.TrueAlphaDotArray[:, None] * self.rotationAxis[None, :]
+
+        gyroNoise = np.random.normal(
+            0.0,
+            self.measurementGyroNoiseStd,
+            size=(self.sampleSize, 3)
+        )
+
+        gyroBias = truthData.TrueBiasArray
+        measuredGyroArray = trueGyroArray + gyroBias + gyroNoise
+
+        return MeasurementSequence(
+            TimeArray=truthData.TimeArray,
             MeasuredAccelArray=measuredAccelArray,
             MeasuredGyroArray=measuredGyroArray,
         )
 
+    def generateTrueValuesAndMeasurements(self):
+        truthData = self.generateTrueValues()
+        measurementSequence = self.generateMeasurements(truthData)
         return truthData, measurementSequence
 
 
