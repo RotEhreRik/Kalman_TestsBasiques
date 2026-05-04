@@ -360,7 +360,7 @@ class BaseImuConfig:
         measurementAccelNoiseStd: float = 0.2,
         measurementGyroNoiseStd: float = 1.0,
         gravity: float = 9.81,
-        rotationAxis: np.ndarray = None,
+        # sourceFileName: str = "",
     ):
         self.timeStep = float(timeStep)
         self.sampleSize = int(sampleSize)
@@ -370,16 +370,8 @@ class BaseImuConfig:
         self.measurementGyroNoiseStd = float(measurementGyroNoiseStd)
         self.gravity = float(gravity)
 
-        if rotationAxis is None:
-            rotationAxis = np.array([0.0, 1.0, 0.0], dtype=float)
-        else:
-            rotationAxis = np.array(rotationAxis, dtype=float)
 
-        axisNorm = np.linalg.norm(rotationAxis)
-        if axisNorm <= 0.0:
-            raise ValueError("rotationAxis ne doit pas être nul")
-
-        self.rotationAxis = rotationAxis / axisNorm
+# =============================================================================
 
 
 class MeasurementConfig(BaseImuConfig):
@@ -390,12 +382,11 @@ class MeasurementConfig(BaseImuConfig):
         measurementAccelNoiseStd: float = 0.2,
         measurementGyroNoiseStd: float = 1.0,
         gravity: float = 9.81,
-        rotationAxis: np.ndarray = None,
         estimatedInitialBiasX: float = 0.0,
         estimatedInitialBiasY: float = 0.0,
         estimatedInitialBiasZ: float = 0.0,
-        sourceFileName: str = "",
-        staticSampleSize: int = 0,
+        # staticSampleSize: int = 0,
+        # sourceFileName: str = "",
     ):
         super().__init__(
             timeStep=timeStep,
@@ -403,21 +394,19 @@ class MeasurementConfig(BaseImuConfig):
             measurementAccelNoiseStd=measurementAccelNoiseStd,
             measurementGyroNoiseStd=measurementGyroNoiseStd,
             gravity=gravity,
-            rotationAxis=rotationAxis,
         )
 
         self.estimatedInitialBiasX = float(estimatedInitialBiasX)
         self.estimatedInitialBiasY = float(estimatedInitialBiasY)
         self.estimatedInitialBiasZ = float(estimatedInitialBiasZ)
-        self.sourceFileName = sourceFileName
-        self.staticSampleSize = int(staticSampleSize)
+        # self.staticSampleSize = int(staticSampleSize)
+        # self.sourceFileName = sourceFileName
 
     @classmethod
     def fromStaticMeasurements(
         cls,
         measurementSequence: MeasurementSequence,
-        rotationAxis: np.ndarray = None,
-        sourceFileName: str = "",
+        # sourceFileName: str = "",
         ddof: int = 1,
         verbose: bool = True,
     ):
@@ -437,20 +426,19 @@ class MeasurementConfig(BaseImuConfig):
             measurementAccelNoiseStd=staticStats["measurementAccelNoiseStd"],
             measurementGyroNoiseStd=staticStats["measurementGyroNoiseStd"],
             gravity=staticStats["estimatedGravity"],
-            rotationAxis=rotationAxis,
             estimatedInitialBiasX=staticStats["estimatedInitialBiasX"],
             estimatedInitialBiasY=staticStats["estimatedInitialBiasY"],
             estimatedInitialBiasZ=staticStats["estimatedInitialBiasZ"],
-            sourceFileName=sourceFileName,
-            staticSampleSize=measurementSequence.SampleSize,
+            # sourceFileName=sourceFileName,
+            # staticSampleSize=measurementSequence.SampleSize,
         )
 
         if verbose:
             print("=== MeasurementConfig depuis séquence fixe ===")
-            print(f"sourceFileName             = {obj.sourceFileName}")
+            # print(f"sourceFileName             = {obj.sourceFileName}")
             print(f"timeStep                   = {obj.timeStep}")
             print(f"sampleSize                 = {obj.sampleSize}")
-            print(f"staticSampleSize           = {obj.staticSampleSize}")
+            # print(f"staticSampleSize           = {obj.staticSampleSize}")
             print(f"measurementAccelNoiseStd   = {obj.measurementAccelNoiseStd}")
             print(f"measurementGyroNoiseStd    = {obj.measurementGyroNoiseStd}")
             print(f"gravity                    = {obj.gravity}")
@@ -460,6 +448,7 @@ class MeasurementConfig(BaseImuConfig):
 
         return obj
 
+# =============================================================================
 
 class SimulationConfig(BaseImuConfig):
     def __init__(
@@ -470,13 +459,14 @@ class SimulationConfig(BaseImuConfig):
         randomSeed: int = 123,
         trueInitialAlpha: float = 0.0,
         trueInitialAlphadot: float = 0.0,
-        trueInitialBiasX: float = 0.0,
-        trueInitialBiasY: float = 0.0,
-        trueInitialBiasZ: float = 0.0,
+        rotationAxis: np.ndarray = None,
         measurementAccelNoiseStd: float = 0.2,
         measurementGyroNoiseStd: float = 1.0,
         gravity: float = 9.81,
-        rotationAxis: np.ndarray = None,
+        trueInitialBiasX: float = 0.0,
+        trueInitialBiasY: float = 0.0,
+        trueInitialBiasZ: float = 0.0,
+        # sourceFileName: str = "",
     ):
         noneCount = [totalTime, timeStep, sampleSize].count(None)
         if noneCount != 1:
@@ -500,7 +490,6 @@ class SimulationConfig(BaseImuConfig):
             measurementAccelNoiseStd=measurementAccelNoiseStd,
             measurementGyroNoiseStd=measurementGyroNoiseStd,
             gravity=gravity,
-            rotationAxis=rotationAxis,
         )
 
         self.randomSeed = randomSeed
@@ -510,9 +499,101 @@ class SimulationConfig(BaseImuConfig):
         self.trueInitialBiasX = trueInitialBiasX
         self.trueInitialBiasY = trueInitialBiasY
         self.trueInitialBiasZ = trueInitialBiasZ
+        # self.sourceFileName = sourceFileName
 
         np.random.seed(self.randomSeed)
         self.setAngularAccelerationProfile()
+
+        if rotationAxis is None:
+            rotationAxis = np.array([0.0, 1.0, 0.0], dtype=float)
+        else:
+            rotationAxis = np.array(rotationAxis, dtype=float)
+
+        axisNorm = np.linalg.norm(rotationAxis)
+        if axisNorm <= 0.0:
+            raise ValueError("rotationAxis ne doit pas être nul")
+
+        self.rotationAxis = rotationAxis / axisNorm
+
+    @classmethod
+    def fromStaticMeasurements(
+        cls,
+        measurementSequence: MeasurementSequence,
+        totalTime: float = None,
+        timeStep: float = None,
+        sampleSize: int = None,
+        randomSeed: int = 123,
+        trueInitialAlpha: float = 0.0,
+        trueInitialAlphadot: float = 0.0,
+        trueInitialBiasX: float = None,
+        trueInitialBiasY: float = None,
+        trueInitialBiasZ: float = None,
+        measurementAccelNoiseStd: float = None,
+        measurementGyroNoiseStd: float = None,
+        gravity: float = None,
+        rotationAxis: np.ndarray = None,
+        ddof: int = 1,
+        verbose: bool = True,
+    ):
+        staticStats = estimateStaticImuCharacteristics(
+            measurementSequence=measurementSequence,
+            ddof=ddof,
+        )
+
+        # dtArray = np.diff(measurementSequence.TimeArray)
+        # if len(dtArray) == 0:
+        #     raise ValueError("Il faut au moins 2 échantillons temporels pour estimer timeStep.")
+        # timeStep = float(np.mean(dtArray))
+
+        if measurementAccelNoiseStd is None:
+            measurementAccelNoiseStd = staticStats["measurementAccelNoiseStd"]
+
+        if measurementGyroNoiseStd is None:
+            measurementGyroNoiseStd = staticStats["measurementGyroNoiseStd"]
+
+        if gravity is None:
+            gravity = staticStats["estimatedGravity"]
+
+        if trueInitialBiasX is None:
+            trueInitialBiasX = staticStats["estimatedInitialBiasX"]
+
+        if trueInitialBiasY is None:
+            trueInitialBiasY = staticStats["estimatedInitialBiasY"]
+
+        if trueInitialBiasZ is None:
+            trueInitialBiasZ = staticStats["estimatedInitialBiasZ"]
+
+        obj = cls(
+            totalTime=totalTime,
+            timeStep=timeStep,
+            sampleSize=sampleSize,
+            randomSeed=randomSeed,
+            trueInitialAlpha=trueInitialAlpha,
+            trueInitialAlphadot=trueInitialAlphadot,
+            rotationAxis=rotationAxis,
+            trueInitialBiasX=trueInitialBiasX,
+            trueInitialBiasY=trueInitialBiasY,
+            trueInitialBiasZ=trueInitialBiasZ,
+            measurementAccelNoiseStd=measurementAccelNoiseStd,
+            measurementGyroNoiseStd=measurementGyroNoiseStd,
+            gravity=gravity,
+            # sourceFileName: str = "",
+        )
+
+        if verbose:
+            print("=== MeasurementConfig depuis séquence fixe ===")
+            # print(f"sourceFileName             = {obj.sourceFileName}")
+            print(f"timeStep                   = {obj.timeStep}")
+            print(f"sampleSize                 = {obj.sampleSize}")
+            # print(f"staticSampleSize           = {obj.staticSampleSize}")
+            print(f"measurementAccelNoiseStd   = {obj.measurementAccelNoiseStd}")
+            print(f"measurementGyroNoiseStd    = {obj.measurementGyroNoiseStd}")
+            print(f"gravity                    = {obj.gravity}")
+            print(f"trueInitialBiasX           = {obj.trueInitialBiasX}")
+            print(f"trueInitialBiasY           = {obj.trueInitialBiasY}")
+            print(f"trueInitialBiasZ           = {obj.trueInitialBiasZ}")
+
+        return obj
 
     def setAngularAccelerationProfile(self, alphaAccelerationProfile: np.ndarray = [[0.0, 0.0]]):
         alphaAccelerationProfile = alphaAccelerationProfile + [[1.0, 0.0]]
@@ -617,8 +698,8 @@ class UkfModel:
             sigmaBeta: float = 2.0,
             sigmaKappa: float = 0.0,
     ):
-        self.timeStep = simConfig.timeStep
-        self.gravity = simConfig.gravity
+        self.timeStep = imuConfig.timeStep
+        self.gravity = imuConfig.gravity
         self.sigmaAlpha = sigmaAlpha
         self.sigmaBeta = sigmaBeta
         self.sigmaKappa = sigmaKappa
@@ -933,109 +1014,264 @@ class UkfRunner:
 
 
 # =============================================================================
+# =============================================================================
+# =============================================================================
+#
 # EXEMPLE D'UTILISATION
+#
+# =============================================================================
+# =============================================================================
 # =============================================================================
 
 if __name__ == "__main__":
 
     measurementSequenceStatic = loadCSVRecord("../Real_Data_Files/imu_data_static.csv")
 
-    measurementSequence = loadCSVRecord("../Real_Data_Files/imu_data_rotation.csv")
-
     noiseStats = estimateStaticImuCharacteristics(measurementSequenceStatic)
 
-    totalTime = 100.0
-    timeStep = 0.01
+    RUN_SIMULATION_SEULE = False
+    RUN_SIMULATION_CALIBREE = False
+    RUN_TRAITEMENT_REEL = True
 
-    print("Config")
-    simConfig = SimulationConfig.fromStaticMeasurements(
-        measurementSequence=measurementSequenceStatic,
-        totalTime=totalTime,
-        timeStep=timeStep,
-        trueInitialAlpha=np.deg2rad(-45.0),
-        trueInitialAlphadot=np.deg2rad(0.0),
-        # trueInitialBiasX=np.deg2rad(10.0),
-        # trueInitialBiasY=np.deg2rad(15.0),
-        # trueInitialBiasZ=np.deg2rad(20.0),
-        rotationAxis=normalizeVector([1.0, 1.0, 0.0]),
-        verbose=True,
-    )
+    # ============================================================================
+    # CAS 1 : simulation seule
+    # ============================================================================
+    if RUN_SIMULATION_SEULE:
 
-    # simConfig = SimulationConfig(
-    #     totalTime=totalTime,
-    #     timeStep=timeStep,
-    #     trueInitialAlpha=np.deg2rad(-45.0),
-    #     trueInitialAlphadot=np.deg2rad(0.0),
-    #     trueInitialBiasX=np.deg2rad(10.0),
-    #     trueInitialBiasY=np.deg2rad(15.0),
-    #     trueInitialBiasZ=np.deg2rad(20.0),
-    #     measurementAccelNoiseStd=0.2,
-    #     measurementGyroNoiseStd=np.deg2rad(10.0),
-    #     rotationAxis=normalizeVector([1.0, 1.0, 0.0]),
-    # )
+        totalTime = 100.0
+        timeStep = 0.01
 
-    trueAngularAccel = 0.30
-    simConfig.setAngularAccelerationProfile(
-        [
-            [0.0, np.deg2rad(0.0)],
-            [.1, np.deg2rad(trueAngularAccel)],
-            [.3, np.deg2rad(-trueAngularAccel)],
-            [.5, np.deg2rad(-trueAngularAccel)],
-            [.7, np.deg2rad(trueAngularAccel)],
-            [.9, np.deg2rad(0.0)],
-        ]
-    )
+        print("Config")
+        simConfig = SimulationConfig(
+            totalTime=totalTime,
+            timeStep=timeStep,
+            trueInitialAlpha=np.deg2rad(-45.0),
+            trueInitialAlphadot=np.deg2rad(0.0),
+            trueInitialBiasX=np.deg2rad(10.0),
+            trueInitialBiasY=np.deg2rad(15.0),
+            trueInitialBiasZ=np.deg2rad(20.0),
+            measurementAccelNoiseStd=0.2,
+            measurementGyroNoiseStd=np.deg2rad(10.0),
+            rotationAxis=normalizeVector([1.0, 1.0, 0.0]),
+        )
 
-    print("True Values")
-    truthData, measurementSequence = simConfig.generateTrueValuesAndMeasurements()  # MODIFIED
+        # simConfig = SimulationConfig.fromStaticMeasurements(
+        #     measurementSequence=measurementSequenceStatic,
+        #     totalTime=totalTime,
+        #     timeStep=timeStep,
+        #     trueInitialAlpha=np.deg2rad(-45.0),
+        #     trueInitialAlphadot=np.deg2rad(0.0),
+        #     # trueInitialBiasX=np.deg2rad(10.0),
+        #     # trueInitialBiasY=np.deg2rad(15.0),
+        #     # trueInitialBiasZ=np.deg2rad(20.0),
+        #     rotationAxis=normalizeVector([1.0, 1.0, 0.0]),
+        #     verbose=True,
+        # )
 
-    trueEulerArray = quaternionToEuler(truthData.TrueQuaternionArray)  # MODIFIED
+        trueAngularAccel = 0.30
+        simConfig.setAngularAccelerationProfile(
+            [
+                [0.0, np.deg2rad(0.0)],
+                [.1, np.deg2rad(trueAngularAccel)],
+                [.3, np.deg2rad(-trueAngularAccel)],
+                [.5, np.deg2rad(-trueAngularAccel)],
+                [.7, np.deg2rad(trueAngularAccel)],
+                [.9, np.deg2rad(0.0)],
+            ]
+        )
 
-    print("Model + Runner")
-    ukfModel = UkfModel(simConfig)
-    runner = UkfRunner()
+        print("True Values")
+        truthData, measurementSequence = simConfig.generateTrueValuesAndMeasurements()  # MODIFIED
 
-    print("Param Mesure STatique")
-    paramsMesStat = UkfParams.fromStaticMeasurements(
-        imuConfig=simConfig,
-        measurementSequence=measurementSequenceStatic,
-        supposedInitialQuaternion=None,
-        processQuaternionNoiseStd=0.001,
-        processBiasNoiseStd=0.001,
-        processInitialConfidenceStd=1.0,
-        label="Depuis Mesure Statique",
-        verbose=True,
-    )
+        trueEulerArray = quaternionToEuler(truthData.TrueQuaternionArray)  # MODIFIED
+
+        print("Model + Runner")
+        ukfModel = UkfModel(simConfig)
+        runner = UkfRunner()
+
+        # print("Param Mesure Statique")
+        # paramsMesStat = UkfParams.fromStaticMeasurements(
+        #     imuConfig=simConfig,
+        #     measurementSequence=measurementSequenceStatic,
+        #     supposedInitialQuaternion=None,
+        #     processQuaternionNoiseStd=0.001,
+        #     processBiasNoiseStd=0.001,
+        #     processInitialConfidenceStd=1.0,
+        #     label="Depuis Mesure Statique",
+        #     verbose=True,
+        # )
+
+        print("Param Réf")
+        paramsRef = UkfParams(
+            imuConfig = simConfig,
+            supposedInitialQuaternion=None,
+            supposedInitialBiasX=0.0,
+            supposedInitialBiasY=0.0,
+            supposedInitialBiasZ=0.0,
+            processQuaternionNoiseStd=0.001,
+            processBiasNoiseStd=0.001,
+            processInitialConfidenceStd=1.0,
+            label="Référence",
+        )
+
+        print("Param Base")
+        paramsBase = UkfParams.fromBase(
+            # paramsMesStat,
+            base=paramsRef,
+            processQuaternionNoiseStd=0.01,
+            processBiasNoiseStd=0.001,
+            processInitialConfidenceStd=0.1,
+            label="Base",
+        )
+
+    # ============================================================================
+    # CAS 2 : simulation calibrée
+    # ============================================================================
+    if RUN_SIMULATION_CALIBREE:
+
+        totalTime = 100.0
+        timeStep = 0.01
+
+        print("Config")
+        # simConfig = SimulationConfig(
+        #     totalTime=totalTime,
+        #     timeStep=timeStep,
+        #     trueInitialAlpha=np.deg2rad(-45.0),
+        #     trueInitialAlphadot=np.deg2rad(0.0),
+        #     trueInitialBiasX=np.deg2rad(10.0),
+        #     trueInitialBiasY=np.deg2rad(15.0),
+        #     trueInitialBiasZ=np.deg2rad(20.0),
+        #     measurementAccelNoiseStd=0.2,
+        #     measurementGyroNoiseStd=np.deg2rad(10.0),
+        #     rotationAxis=normalizeVector([1.0, 1.0, 0.0]),
+        # )
+
+        simConfig = SimulationConfig.fromStaticMeasurements(
+            measurementSequence=measurementSequenceStatic,
+            totalTime=totalTime,
+            timeStep=timeStep,
+            trueInitialAlpha=np.deg2rad(-45.0),
+            trueInitialAlphadot=np.deg2rad(0.0),
+            # trueInitialBiasX=np.deg2rad(10.0),
+            # trueInitialBiasY=np.deg2rad(15.0),
+            # trueInitialBiasZ=np.deg2rad(20.0),
+            rotationAxis=normalizeVector([1.0, 1.0, 0.0]),
+            verbose=True,
+        )
+
+        trueAngularAccel = 0.30
+        simConfig.setAngularAccelerationProfile(
+            [
+                [0.0, np.deg2rad(0.0)],
+                [.1, np.deg2rad(trueAngularAccel)],
+                [.3, np.deg2rad(-trueAngularAccel)],
+                [.5, np.deg2rad(-trueAngularAccel)],
+                [.7, np.deg2rad(trueAngularAccel)],
+                [.9, np.deg2rad(0.0)],
+            ]
+        )
+
+        print("True Values")
+        truthData, measurementSequence = simConfig.generateTrueValuesAndMeasurements()  # MODIFIED
+
+        trueEulerArray = quaternionToEuler(truthData.TrueQuaternionArray)  # MODIFIED
+
+        print("Model + Runner")
+        ukfModel = UkfModel(simConfig)
+        runner = UkfRunner()
+
+        # print("Param Mesure Statique")
+        # paramsMesStat = UkfParams.fromStaticMeasurements(
+        #     imuConfig=simConfig,
+        #     measurementSequence=measurementSequenceStatic,
+        #     supposedInitialQuaternion=None,
+        #     processQuaternionNoiseStd=0.001,
+        #     processBiasNoiseStd=0.001,
+        #     processInitialConfidenceStd=1.0,
+        #     label="Depuis Mesure Statique",
+        #     verbose=True,
+        # )
+
+        print("Param Mesure Statique")
+        paramsMesStat = UkfParams(
+            imuConfig=simConfig,
+            # measurementSequence=measurementSequenceStatic,
+            supposedInitialQuaternion=None,
+            processQuaternionNoiseStd=0.001,
+            processBiasNoiseStd=0.001,
+            processInitialConfidenceStd=1.0,
+            label="Depuis Mesure Statique",
+            # verbose=True,
+        )
 
 
-    print("Param Réf")
-    paramsRef = UkfParams(
-        imuConfig = simConfig,
-        supposedInitialQuaternion=None,
-        supposedInitialBiasX=0.0,
-        supposedInitialBiasY=0.0,
-        supposedInitialBiasZ=0.0,
-        processQuaternionNoiseStd=0.001,
-        processBiasNoiseStd=0.001,
-        processInitialConfidenceStd=1.0,
-        label="Référence",
-    )
+        print("Param Réf")
+        paramsRef = UkfParams(
+            imuConfig = simConfig,
+            supposedInitialQuaternion=None,
+            supposedInitialBiasX=0.0,
+            supposedInitialBiasY=0.0,
+            supposedInitialBiasZ=0.0,
+            processQuaternionNoiseStd=0.001,
+            processBiasNoiseStd=0.001,
+            processInitialConfidenceStd=1.0,
+            label="Référence",
+        )
 
-    print("Param Base")
-    paramsBase = UkfParams.fromBase(
-        paramsMesStat,
-        # paramsRef,
-        processQuaternionNoiseStd=0.01,
-        processBiasNoiseStd=0.001,
-        processInitialConfidenceStd=0.1,
-        label="Base",
-    )
+        print("Param Base")
+        paramsBase = UkfParams.fromBase(
+            base=paramsMesStat,
+            # paramsRef,
+            processQuaternionNoiseStd=0.01,
+            processBiasNoiseStd=0.001,
+            processInitialConfidenceStd=0.1,
+            label="Base",
+        )
+
+    # ============================================================================
+    # CAS 3 : traitement réel
+    # ============================================================================
+    if RUN_TRAITEMENT_REEL:
+        measurementSequence = loadCSVRecord("../Real_Data_Files/imu_data_rotation.csv")
+
+        calibConfig = MeasurementConfig.fromStaticMeasurements(
+            measurementSequence=measurementSequenceStatic,
+            # rotationAxis=normalizeVector([1.0, 1.0, 0.0]),
+            # sourceFileName="mesures_statiques.csv",
+            verbose=True,
+        )
+
+        mesConfig = MeasurementConfig(
+            timeStep=calibConfig.timeStep,
+            sampleSize=measurementSequence.SampleSize,
+            measurementAccelNoiseStd=calibConfig.measurementAccelNoiseStd,
+            measurementGyroNoiseStd=calibConfig.measurementGyroNoiseStd,
+            gravity=calibConfig.gravity,
+            # rotationAxis=calibConfig.rotationAxis,
+            estimatedInitialBiasX=calibConfig.estimatedInitialBiasX,
+            estimatedInitialBiasY=calibConfig.estimatedInitialBiasY,
+            estimatedInitialBiasZ=calibConfig.estimatedInitialBiasZ,
+            # sourceFileName="mesures_reelles.csv",
+            # staticSampleSize=calibConfig.staticSampleSize,
+        )
+
+        ukfModel = UkfModel(mesConfig)
+        runner = UkfRunner()
+
+        paramsBase = UkfParams.fromMeasurementConfig(
+            measurementConfig=mesConfig,
+            supposedInitialQuaternion=None,
+            processQuaternionNoiseStd=0.01,
+            processBiasNoiseStd=0.001,
+            processInitialConfidenceStd=0.1,
+            label="Traitement réel avec calibration statique séparée",
+        )
 
     print("Params multiples")
     paramsSweep = UkfParams.createSweepParams(
-        paramsBase,
-        "processInitialConfidenceStd",
-        [0.01, 0.1, 1.0]
+        base= paramsBase,
+        paramName="processInitialConfidenceStd",
+        paramValues=[.01, 0.1, 1.0],
     )
 
     print("Run multiples")
@@ -1044,9 +1280,9 @@ if __name__ == "__main__":
         currentLabel = currentParams.label
         results.append(
             runner.run(
-                ukfModel,
-                currentParams,
-                measurementSequence,  # MODIFIED
+                model=ukfModel,
+                params=currentParams,
+                measurementSequence=measurementSequence,  # MODIFIED
                 label=currentLabel
             )
         )
@@ -1091,30 +1327,31 @@ if __name__ == "__main__":
                       label="estimatedBiasArray " + res.label)
         plotsProgress()
 
-    axes[0].plot(truthData.TimeArray, truthData.TrueQuaternionArray[:, 0], 'k--', label="trueQuaternion qw")
-    plotsProgress()
-    axes[1].plot(truthData.TimeArray, truthData.TrueQuaternionArray[:, 1], 'k--', label="trueQuaternion qx")
-    plotsProgress()
-    axes[2].plot(truthData.TimeArray, truthData.TrueQuaternionArray[:, 2], 'k--', label="trueQuaternion qy")
-    plotsProgress()
-    axes[3].plot(truthData.TimeArray, truthData.TrueQuaternionArray[:, 3], 'k--', label="trueQuaternion qz")
-    plotsProgress()
-    axes[4].plot(truthData.TimeArray, np.linalg.norm(truthData.TrueQuaternionArray, axis=-1), 'k--',
-                 label="trueQuaternion Norm")
-    plotsProgress()
 
-    axes[5].plot(truthData.TimeArray, np.rad2deg(trueEulerArray[:, 0]), 'k--', label="Roll")
-    plotsProgress()
-    axes[6].plot(truthData.TimeArray, np.rad2deg(trueEulerArray[:, 1]), 'k--', label="Pitch")
-    plotsProgress()
-    axes[7].plot(truthData.TimeArray, np.rad2deg(trueEulerArray[:, 2]), 'k--', label="Yaw")
-    plotsProgress()
-    axes[8].plot(truthData.TimeArray, np.rad2deg(truthData.TrueBiasArray[:, 0]), 'k--', label="trueBiases")
-    plotsProgress()
-    axes[9].plot(truthData.TimeArray, np.rad2deg(truthData.TrueBiasArray[:, 1]), 'k--', label="trueBiases")
-    plotsProgress()
-    axes[10].plot(truthData.TimeArray, np.rad2deg(truthData.TrueBiasArray[:, 2]), 'k--', label="trueBiases")
-    plotsProgress()
+    # axes[0].plot(truthData.TimeArray, truthData.TrueQuaternionArray[:, 0], 'k--', label="trueQuaternion qw")
+    # plotsProgress()
+    # axes[1].plot(truthData.TimeArray, truthData.TrueQuaternionArray[:, 1], 'k--', label="trueQuaternion qx")
+    # plotsProgress()
+    # axes[2].plot(truthData.TimeArray, truthData.TrueQuaternionArray[:, 2], 'k--', label="trueQuaternion qy")
+    # plotsProgress()
+    # axes[3].plot(truthData.TimeArray, truthData.TrueQuaternionArray[:, 3], 'k--', label="trueQuaternion qz")
+    # plotsProgress()
+    # axes[4].plot(truthData.TimeArray, np.linalg.norm(truthData.TrueQuaternionArray, axis=-1), 'k--',
+    #              label="trueQuaternion Norm")
+    # plotsProgress()
+    #
+    # axes[5].plot(truthData.TimeArray, np.rad2deg(trueEulerArray[:, 0]), 'k--', label="Roll")
+    # plotsProgress()
+    # axes[6].plot(truthData.TimeArray, np.rad2deg(trueEulerArray[:, 1]), 'k--', label="Pitch")
+    # plotsProgress()
+    # axes[7].plot(truthData.TimeArray, np.rad2deg(trueEulerArray[:, 2]), 'k--', label="Yaw")
+    # plotsProgress()
+    # axes[8].plot(truthData.TimeArray, np.rad2deg(truthData.TrueBiasArray[:, 0]), 'k--', label="trueBiases")
+    # plotsProgress()
+    # axes[9].plot(truthData.TimeArray, np.rad2deg(truthData.TrueBiasArray[:, 1]), 'k--', label="trueBiases")
+    # plotsProgress()
+    # axes[10].plot(truthData.TimeArray, np.rad2deg(truthData.TrueBiasArray[:, 2]), 'k--', label="trueBiases")
+    # plotsProgress()
 
     axes[0].set_ylim(-1.0, 1.0)
     axes[1].set_ylim(-1.0, 1.0)
