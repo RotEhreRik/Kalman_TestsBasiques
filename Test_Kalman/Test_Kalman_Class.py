@@ -285,6 +285,77 @@ def loadCSVRecord(fileName: str) -> MeasurementSequence:
     )
 
 
+def estimateImuNoiseFromStaticMeasurements(
+        measurementSequence: MeasurementSequence,
+        ddof: int = 1,
+):
+    """
+    Estime les niveaux de bruit accel/gyro à partir d'une séquence
+    acquise lorsque l'IMU est immobile.
+
+    Hypothèses :
+    - orientation constante sur la fenêtre ;
+    - vitesse angulaire vraie constante (idéalement nulle) ;
+    - biais gyro constant sur la fenêtre ;
+    - les fluctuations résiduelles sont dominées par le bruit de mesure.
+
+    Paramètres
+    ----------
+    measurementSequence : MeasurementSequence
+        Séquence de mesures IMU fixes.
+    ddof : int
+        Delta degrés de liberté pour np.std.
+        ddof=1 -> estimation empirique non biaisée sur échantillon.
+
+    Retour
+    ------
+    dict avec :
+    - measurementAccelNoiseStd : float
+    - measurementGyroNoiseStd  : float
+    - accelNoiseStdPerAxis     : np.ndarray shape (3,)
+    - gyroNoiseStdPerAxis      : np.ndarray shape (3,)
+    - meanStaticAccel          : np.ndarray shape (3,)
+    - meanStaticGyro           : np.ndarray shape (3,)
+    - sampleSize               : int
+    """
+
+    accel = np.asarray(measurementSequence.MeasuredAccelArray, dtype=float)
+    gyro = np.asarray(measurementSequence.MeasuredGyroArray, dtype=float)
+
+    if accel.ndim != 2 or accel.shape[1] != 3:
+        raise ValueError("MeasuredAccelArray doit être de forme (N, 3).")
+
+    if gyro.ndim != 2 or gyro.shape[1] != 3:
+        raise ValueError("MeasuredGyroArray doit être de forme (N, 3).")
+
+    sampleSize = accel.shape[0]
+    if sampleSize < 2:
+        raise ValueError("Il faut au moins 2 échantillons pour estimer un écart-type.")
+
+    meanStaticAccel = np.mean(accel, axis=0)
+    meanStaticGyro = np.mean(gyro, axis=0)
+
+    accelResiduals = accel - meanStaticAccel
+    gyroResiduals = gyro - meanStaticGyro
+
+    accelNoiseStdPerAxis = np.std(accelResiduals, axis=0, ddof=ddof)
+    gyroNoiseStdPerAxis = np.std(gyroResiduals, axis=0, ddof=ddof)
+
+    # Un seul scalaire par capteur pour rester compatible avec SimulationConfig
+    measurementAccelNoiseStd = float(np.sqrt(np.mean(accelNoiseStdPerAxis ** 2)))
+    measurementGyroNoiseStd = float(np.sqrt(np.mean(gyroNoiseStdPerAxis ** 2)))
+
+    return {
+        "measurementAccelNoiseStd": measurementAccelNoiseStd,
+        "measurementGyroNoiseStd": measurementGyroNoiseStd,
+        "accelNoiseStdPerAxis": accelNoiseStdPerAxis,
+        "gyroNoiseStdPerAxis": gyroNoiseStdPerAxis,
+        "meanStaticAccel": meanStaticAccel,
+        "meanStaticGyro": meanStaticGyro,
+        "sampleSize": sampleSize,
+    }
+
+
 # =============================================================================
 # Classe SimulationConfig
 # =============================================================================
@@ -386,6 +457,62 @@ class SimulationConfig:
         if axisNorm <= 0.0:
             raise ValueError("rotationAxis ne doit pas être nul")
         self.rotationAxis = rotationAxis / axisNorm
+
+    @classmethod
+    def fromStaticMeasurements(
+            cls,
+            measurementSequence: MeasurementSequence,
+            totalTime: float = None,
+            timeStep: float = None,
+            sampleSize: int = None,
+            randomSeed: int = 123,
+            trueInitialAlpha: float = 0.0,
+            trueInitialAlphadot: float = 0.0,
+            trueInitialBiasX: float = 0.0,
+            trueInitialBiasY: float = 0.0,
+            trueInitialBiasZ: float = 0.0,
+            gravity: float = 9.81,
+            rotationAxis: np.ndarray = None,
+            ddof: int = 1,
+            verbose: bool = True,
+    ):
+        """
+        Construit une SimulationConfig en estimant automatiquement :
+        - measurementAccelNoiseStd
+        - measurementGyroNoiseStd
+        à partir d'une séquence de mesures prise IMU immobile.
+        """
+
+        noiseStats = estimateImuNoiseFromStaticMeasurements(
+            measurementSequence=measurementSequence,
+            ddof=ddof,
+        )
+
+        if verbose:
+            print("=== Estimation du bruit IMU sur séquence fixe ===")
+            print(f"SampleSize                  = {noiseStats['sampleSize']}")
+            print(f"meanStaticAccel             = {noiseStats['meanStaticAccel']}")
+            print(f"meanStaticGyro              = {noiseStats['meanStaticGyro']}")
+            print(f"accelNoiseStdPerAxis        = {noiseStats['accelNoiseStdPerAxis']}")
+            print(f"gyroNoiseStdPerAxis         = {noiseStats['gyroNoiseStdPerAxis']}")
+            print(f"measurementAccelNoiseStd    = {noiseStats['measurementAccelNoiseStd']}")
+            print(f"measurementGyroNoiseStd     = {noiseStats['measurementGyroNoiseStd']}")
+
+        return cls(
+            totalTime=totalTime,
+            timeStep=timeStep,
+            sampleSize=sampleSize,
+            randomSeed=randomSeed,
+            trueInitialAlpha=trueInitialAlpha,
+            trueInitialAlphadot=trueInitialAlphadot,
+            trueInitialBiasX=trueInitialBiasX,
+            trueInitialBiasY=trueInitialBiasY,
+            trueInitialBiasZ=trueInitialBiasZ,
+            measurementAccelNoiseStd=noiseStats["measurementAccelNoiseStd"],
+            measurementGyroNoiseStd=noiseStats["measurementGyroNoiseStd"],
+            gravity=gravity,
+            rotationAxis=rotationAxis,
+        )
 
     def setAngularAccelerationProfile(self, alphaAccelerationProfile: np.ndarray = [[0.0, 0.0]]):
         alphaAccelerationProfile = alphaAccelerationProfile + [[1.0, 0.0]]
@@ -742,11 +869,29 @@ class UkfRunner:
 
 if __name__ == "__main__":
 
+    measurementSequenceStatic = loadCSVRecord("../Real_Data_Files/imu_data_static.csv")
+
+    noiseStats = estimateImuNoiseFromStaticMeasurements(measurementSequenceStatic)
+
+    print("measurementAccelNoiseStd =", noiseStats["measurementAccelNoiseStd"])
+
+    print("measurementGyroNoiseStd  =", noiseStats["measurementGyroNoiseStd"])
+    print(f"measurementGyroNoiseStd (deg/s) = {np.rad2deg(noiseStats['measurementGyroNoiseStd'])}")
+
+    print("accelNoiseStdPerAxis     =", noiseStats["accelNoiseStdPerAxis"])
+
+    print("gyroNoiseStdPerAxis      =", noiseStats["gyroNoiseStdPerAxis"])
+    print(f"gyroNoiseStdPerAxis (deg/s)     = {np.rad2deg(noiseStats['gyroNoiseStdPerAxis'])}")
+
+    print("meanStaticAccel          =", noiseStats["meanStaticAccel"])
+    print("meanStaticGyro           =", noiseStats["meanStaticGyro"])
+
     totalTime = 100.0
     timeStep = 0.01
 
     print("Config")
-    simConfig = SimulationConfig(
+    simConfig = SimulationConfig.fromStaticMeasurements(
+        measurementSequence=measurementSequenceStatic,
         totalTime=totalTime,
         timeStep=timeStep,
         trueInitialAlpha=np.deg2rad(-45.0),
@@ -754,10 +899,22 @@ if __name__ == "__main__":
         trueInitialBiasX=np.deg2rad(10.0),
         trueInitialBiasY=np.deg2rad(15.0),
         trueInitialBiasZ=np.deg2rad(20.0),
-        measurementAccelNoiseStd=0.2,
-        measurementGyroNoiseStd=np.deg2rad(10.0),
         rotationAxis=normalizeVector([1.0, 1.0, 0.0]),
+        verbose=True,
     )
+
+    # simConfig = SimulationConfig(
+    #     totalTime=totalTime,
+    #     timeStep=timeStep,
+    #     trueInitialAlpha=np.deg2rad(-45.0),
+    #     trueInitialAlphadot=np.deg2rad(0.0),
+    #     trueInitialBiasX=np.deg2rad(10.0),
+    #     trueInitialBiasY=np.deg2rad(15.0),
+    #     trueInitialBiasZ=np.deg2rad(20.0),
+    #     measurementAccelNoiseStd=0.2,
+    #     measurementGyroNoiseStd=np.deg2rad(10.0),
+    #     rotationAxis=normalizeVector([1.0, 1.0, 0.0]),
+    # )
 
     trueAngularAccel = 0.30
     simConfig.setAngularAccelerationProfile(
