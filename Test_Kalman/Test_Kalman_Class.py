@@ -160,6 +160,23 @@ def quaternionToEuler(q):
     return RollPitchYaw
 
 
+def angleAxisToQuaternion(alpha, rotationAxis):
+    alphaArray = np.atleast_1d(np.asarray(alpha, dtype=float))
+    halfAlphaArray = 0.5 * alphaArray
+
+    quaternionArray = np.zeros((alphaArray.size, 4), dtype=float)
+
+    ux, uy, uz = rotationAxis
+    quaternionArray[:, 0] = np.cos(halfAlphaArray)
+    quaternionArray[:, 1] = ux * np.sin(halfAlphaArray)
+    quaternionArray[:, 2] = uy * np.sin(halfAlphaArray)
+    quaternionArray[:, 3] = uz * np.sin(halfAlphaArray)
+
+    if np.isscalar(alpha):
+        return quaternionArray[0]
+    return quaternionArray
+
+
 # =============================================================================
 # ADDED : structures de données communes
 # =============================================================================
@@ -314,7 +331,7 @@ class SimulationConfig:
             timeStep: float,
             sampleSize: int,
     ):
-        noneCount = [totalTime,timeStep, sampleSize ].count(None)
+        noneCount = [totalTime, timeStep, sampleSize].count(None)
 
         if noneCount != 1:
             raise ValueError(
@@ -335,18 +352,18 @@ class SimulationConfig:
             self.sampleSize = int(self.totalTime / self.timeStep)
 
     def _init_general_parameters(
-                self,
-                randomSeed: int,
-                trueInitialAlpha: float,
-                trueInitialAlphadot: float,
-                trueInitialBiasX: float,
-                trueInitialBiasY: float,
-                trueInitialBiasZ: float,
-                measurementAccelNoiseStd: float,
-                measurementGyroNoiseStd: float,
-                gravity: float,
-                rotationAxis: np.ndarray,
-        ):
+            self,
+            randomSeed: int,
+            trueInitialAlpha: float,
+            trueInitialAlphadot: float,
+            trueInitialBiasX: float,
+            trueInitialBiasY: float,
+            trueInitialBiasZ: float,
+            measurementAccelNoiseStd: float,
+            measurementGyroNoiseStd: float,
+            gravity: float,
+            rotationAxis: np.ndarray,
+    ):
         self.randomSeed = randomSeed
 
         self.trueInitialAlpha = trueInitialAlpha
@@ -370,34 +387,10 @@ class SimulationConfig:
             raise ValueError("rotationAxis ne doit pas être nul")
         self.rotationAxis = rotationAxis / axisNorm
 
-
-
-    def alphaToQuaternion(self, alpha):
-        alphaArray = np.atleast_1d(np.asarray(alpha, dtype=float))
-        halfAlphaArray = 0.5 * alphaArray
-
-        quaternionArray = np.zeros((alphaArray.size, 4), dtype=float)
-
-        ux, uy, uz = self.rotationAxis
-        quaternionArray[:, 0] = np.cos(halfAlphaArray)
-        quaternionArray[:, 1] = ux * np.sin(halfAlphaArray)
-        quaternionArray[:, 2] = uy * np.sin(halfAlphaArray)
-        quaternionArray[:, 3] = uz * np.sin(halfAlphaArray)
-
-        if np.isscalar(alpha):
-            return quaternionArray[0]
-        return quaternionArray
-
     def setAngularAccelerationProfile(self, alphaAccelerationProfile: np.ndarray = [[0.0, 0.0]]):
         alphaAccelerationProfile = alphaAccelerationProfile + [[1.0, 0.0]]
         alphaAccelerationProfile = np.array(alphaAccelerationProfile, dtype=float)
         self.alphaAccelerationProfile = alphaAccelerationProfile
-
-
-
-
-
-
 
     def generateTrueValues(self):
         print(f"TimeStep : {self.timeStep}")
@@ -426,7 +419,7 @@ class SimulationConfig:
             trueAlphaArray[indexTime] = currentAlpha
             trueAlphaDotArray[indexTime] = currentAlphaDot
 
-        trueQuaternionArray = self.alphaToQuaternion(trueAlphaArray)
+        trueQuaternionArray = angleAxisToQuaternion(trueAlphaArray, self.rotationAxis)
 
         gyroBias = np.array([
             self.trueInitialBiasX,
