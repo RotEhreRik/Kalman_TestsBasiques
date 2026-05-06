@@ -1026,6 +1026,7 @@ class UkfRunner:
 if __name__ == "__main__":
 
     measurementSequenceStatic = loadCSVRecord("../Real_Data_Files/imu_data_static.csv")
+    # measurementSequenceStatic = loadCSVRecord("../Real_Data_Files/imu_merged_static.csv")
 
     noiseStats = estimateStaticImuCharacteristics(measurementSequenceStatic)
 
@@ -1232,7 +1233,13 @@ if __name__ == "__main__":
     # CAS 3 : traitement réel
     # ============================================================================
     if RUN_TRAITEMENT_REEL:
-        measurementSequence = loadCSVRecord("../Real_Data_Files/imu_data_rotation.csv")
+        # measurementSequence = loadCSVRecord("../Real_Data_Files/imu_data_static.csv")
+        # measurementSequence = loadCSVRecord("../Real_Data_Files/imu_data_rotation.csv")
+        # measurementSequence = loadCSVRecord("../Real_Data_Files/imu_merged_rotation.csv")
+        # measurementSequence = loadCSVRecord("../Real_Data_Files/imu_merged_rotation3axes.csv")
+        # measurementSequence = loadCSVRecord("../Real_Data_Files/imu_data_rotation_axe_X.csv")
+        measurementSequence = loadCSVRecord("../Real_Data_Files/imu_data_rotation_axe_Y.csv")
+        # measurementSequence = loadCSVRecord("../Real_Data_Files/imu_data_figure_8_plan_XZ.csv")
 
         calibConfig = MeasurementConfig.fromStaticMeasurements(
             measurementSequence=measurementSequenceStatic,
@@ -1241,7 +1248,7 @@ if __name__ == "__main__":
             verbose=True,
         )
 
-        mesConfig = MeasurementConfig(
+        measConfig = MeasurementConfig(
             timeStep=calibConfig.timeStep,
             sampleSize=measurementSequence.SampleSize,
             measurementAccelNoiseStd=calibConfig.measurementAccelNoiseStd,
@@ -1255,15 +1262,15 @@ if __name__ == "__main__":
             # staticSampleSize=calibConfig.staticSampleSize,
         )
 
-        ukfModel = UkfModel(mesConfig)
+        ukfModel = UkfModel(measConfig)
         runner = UkfRunner()
 
         paramsBase = UkfParams.fromMeasurementConfig(
-            measurementConfig=mesConfig,
+            measurementConfig=measConfig,
             supposedInitialQuaternion=None,
-            processQuaternionNoiseStd=0.01,
-            processBiasNoiseStd=0.001,
-            processInitialConfidenceStd=0.1,
+            processQuaternionNoiseStd=0.1,
+            processBiasNoiseStd=0.0001,
+            processInitialConfidenceStd=0.01,
             label="Traitement réel avec calibration statique séparée",
         )
 
@@ -1271,7 +1278,7 @@ if __name__ == "__main__":
     paramsSweep = UkfParams.createSweepParams(
         base= paramsBase,
         paramName="processInitialConfidenceStd",
-        paramValues=[.01, 0.1, 1.0],
+        paramValues=[0.01],
     )
 
     print("Run multiples")
@@ -1377,7 +1384,7 @@ if __name__ == "__main__":
     plt.show()
 
 print("Fin plots")
-exit(0)
+# exit(0)
 
 # =============================================================================
 # Bloc A : représentation 3D du trièdre IMU + gravité
